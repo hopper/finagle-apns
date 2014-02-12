@@ -1,13 +1,13 @@
 package com.hopper.finagle
 
-import com.hopper.finagle.apns.{ApnsClient, ApnsEnvironment, Notification, Rejection}
+import com.hopper.finagle.apns.{ApnsPushClient, ApnsEnvironment, Notification, Rejection}
 import com.twitter.concurrent.Broker
 import javax.net.ssl.{ SSLContext, KeyManagerFactory }
 import java.security.KeyStore
 
 object ApnsRichClient {
 
-  def newRichClient(client: ApnsClient) = {
+  def newRichClient(client: ApnsPushClient) = {
     val broker = new Broker[Rejection]
     val sf = client.newClient()
     new apns.Client(broker, sf, client.bufferSize, client.statsReceiver)
@@ -15,7 +15,7 @@ object ApnsRichClient {
 
   def newRichClient(env: ApnsEnvironment, sslContext: SSLContext): apns.Client = {
     val broker = new Broker[Rejection]
-    val sf = new ApnsClient(env, sslContext, broker).newClient(env.hostname)
+    val sf = new ApnsPushClient(env, sslContext, broker).newClient(env.pushHostname)
     new apns.Client(broker, sf)
   }
 

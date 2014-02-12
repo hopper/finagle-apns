@@ -112,7 +112,7 @@ class RejectionDecoder extends FrameDecoder {
   }
 }
 
-class ApnsChannelHandler extends SimpleChannelHandler {
+class ApnsPushChannelHandler extends SimpleChannelHandler {
   override def messageReceived(ctx: ChannelHandlerContext, e: MessageEvent) = {
     e.getMessage match {
       case r: Rejection =>
@@ -121,7 +121,7 @@ class ApnsChannelHandler extends SimpleChannelHandler {
   }
 }
 
-case class Apns extends CodecFactory[Notification, Rejection] {
+case class ApnsPush extends CodecFactory[Notification, Rejection] {
 
   def server = Function.const { throw new UnsupportedOperationException }
 

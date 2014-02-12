@@ -48,41 +48,41 @@ case object Unknown extends RejectionCode
 case class Rejection(code: RejectionCode, id: Int)
 
 sealed trait ApnsEnvironment {
-  val hostname: String
+  val pushHostname: String
 }
 case object Sandbox extends ApnsEnvironment {
-  val hostname = "gateway.sandbox.push.apple.com:2195"
+  val pushHostname = "gateway.sandbox.push.apple.com:2195"
 }
 case object Production extends ApnsEnvironment {
-  val hostname = "gateway.push.apple.com:2195"
+  val pushHostname = "gateway.push.apple.com:2195"
 }
 
-class ApnsClient(
+class ApnsPushClient(
   env: ApnsEnvironment,
   sslContext: SSLContext,
   broker: Broker[Rejection],
   val bufferSize: Int = 100) 
   extends DefaultClient[Notification, Unit](
-    name = "apns", 
-    endpointer = Bridge[Notification, Rejection, Notification, Unit](new ApnsStreamTransporter(env, sslContext), new ApnsDispatcher(broker, _)),
+    name = "apnsPush", 
+    endpointer = Bridge[Notification, Rejection, Notification, Unit](new ApnsPushStreamTransporter(env, sslContext), new ApnsPushDispatcher(broker, _)),
     pool = (sr: StatsReceiver) => new ReusingPool(_, sr)
   ) {
   def newClient() = {
-    super.newClient(env.hostname)
+    super.newClient(env.pushHostname)
   }
 }
 
-class ApnsStreamTransporter(env: ApnsEnvironment, sslContext: SSLContext) extends Netty3Transporter[Notification, Rejection](
-  name = "apns",
-  pipelineFactory = Apns().client(ClientCodecConfig("apnsclient")).pipelineFactory,
+class ApnsPushStreamTransporter(env: ApnsEnvironment, sslContext: SSLContext) extends Netty3Transporter[Notification, Rejection](
+  name = "apnsPush",
+  pipelineFactory = ApnsPush().client(ClientCodecConfig("apnsclient")).pipelineFactory,
   tlsConfig = Some(Netty3TransporterTLSConfig(
     newEngine = () => JSSE.client(sslContext),
-    verifyHost = Some(env.hostname.split(":").head))
+    verifyHost = Some(env.pushHostname.split(":").head))
   ),
   channelSnooper = Some(new SimpleChannelSnooper("apns"))
 )
 
-class ApnsDispatcher[Req](broker: Broker[Rejection], trans: Transport[Req, Rejection])
+class ApnsPushDispatcher[Req](broker: Broker[Rejection], trans: Transport[Req, Rejection])
   extends Service[Req, Unit] {
   
   trans.read
