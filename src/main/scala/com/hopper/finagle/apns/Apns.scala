@@ -12,9 +12,7 @@ import com.twitter.finagle.ssl.JSSE
 import com.twitter.finagle.stats.{ DefaultStatsReceiver, StatsReceiver }
 import com.twitter.finagle.transport.Transport
 import java.security.KeyStore
-import javax.net.ssl.SSLContext
-import javax.net.ssl.TrustManagerFactory
-import javax.net.ssl.KeyManagerFactory
+import javax.net.ssl.{SSLContext, TrustManagerFactory, KeyManagerFactory}
 
 sealed trait Alert
 case class RichAlert(

@@ -1,20 +1,13 @@
 package com.hopper.finagle.apns
 package protocol
 
-import com.twitter.finagle.CodecFactory
-import com.twitter.finagle.Codec
+import com.twitter.finagle.{Codec, CodecFactory}
 import com.twitter.util.Future
-import org.jboss.netty.channel.ChannelPipelineFactory
-import org.jboss.netty.channel.Channels
-import org.jboss.netty.handler.codec.oneone.OneToOneEncoder
-import org.jboss.netty.channel.ChannelHandlerContext
-import org.jboss.netty.channel.Channel
-import org.jboss.netty.buffer.ChannelBuffers
-import org.jboss.netty.handler.codec.frame.FrameDecoder
-import org.jboss.netty.buffer.ChannelBuffer
-import org.jboss.netty.channel.SimpleChannelHandler
-import org.jboss.netty.channel.MessageEvent
 import com.twitter.concurrent.Offer
+import org.jboss.netty.buffer.{ChannelBuffer, ChannelBuffers}
+import org.jboss.netty.channel.{Channel, Channels, ChannelHandlerContext, ChannelPipelineFactory, MessageEvent, SimpleChannelHandler}
+import org.jboss.netty.handler.codec.oneone.OneToOneEncoder
+import org.jboss.netty.handler.codec.frame.FrameDecoder
 
 class NotificationEncoder extends OneToOneEncoder {
   
