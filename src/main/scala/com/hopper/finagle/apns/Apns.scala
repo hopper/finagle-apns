@@ -16,10 +16,35 @@ import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.KeyManagerFactory
 
-case class Payload(alert: Option[String] = None, badge: Option[Int] = None, sound: Option[String] = None) {
+sealed trait Alert
+case class RichAlert(
+  body: String,
+  actionLocKey: Option[String] = None,
+  locKey: Option[String] = None,
+  locArgs: Seq[String] = Seq.empty,
+  launchImage: Option[String] = None
+) extends Alert {
+  override def toString = {
+    val alert = Seq(
+      Some(""""body":"%s"""" format body),
+      actionLocKey.map(""""action-loc-key":"%s"""" format _),
+      locKey.map(""""loc-key":"%s"""" format _),
+      Some(locArgs).filter(_.size > 0).map(""""locArgs":[%s]""" format _.mkString("\"", ",", "\"")),
+      launchImage.map(""""launch-image":"%s"""" format _)
+    ).flatten.mkString(",")
+    """{%s}""" format alert
+  }
+}
+case class SimpleAlert(alert: String) extends Alert {
+  override def toString = {
+    """"%s"""" format alert
+  }
+}
+
+case class Payload(alert: Option[Alert] = None, badge: Option[Int] = None, sound: Option[String] = None) {
   override def toString = {
     val payload = Seq(
-      alert.map { """"alert":"%s"""" format _ },
+      alert.map { """"alert":%s""" format _ },
       badge.map { """"badge":%d""" format _ },
       sound.map { """"sound":"%s"""" format _ }
     ).flatten.mkString(",")
