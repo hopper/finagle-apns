@@ -4,7 +4,7 @@ import Keys._
 object FinagleApns extends Build {
 
   object V {
-    val finagle = "6.8.1"
+    val finagle = "6.18.0"
   }
 
   val baseSettings = Defaults.defaultSettings ++ Seq(
