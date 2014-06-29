@@ -130,7 +130,7 @@ class RejectionDecoder extends FrameDecoder {
         case 0x0A => Shutdown
         case 0xFF => Unknown
       }
-      Rejection(code, msg.readInt)
+      msg.readInt -> code
     } else {
       msg.resetReaderIndex
       null
@@ -147,12 +147,12 @@ class ApnsPushChannelHandler extends SimpleChannelHandler {
   }
 }
 
-case class ApnsPush extends CodecFactory[SeqNotification, Rejection] {
+case class ApnsPush extends CodecFactory[SeqNotification, SeqRejection] {
 
   def server = Function.const { throw new UnsupportedOperationException }
 
   def client = Function.const {
-    new Codec[SeqNotification, Rejection] {
+    new Codec[SeqNotification, SeqRejection] {
       def pipelineFactory = new ChannelPipelineFactory {
         def getPipeline() = {
           val pipeline = Channels.pipeline()

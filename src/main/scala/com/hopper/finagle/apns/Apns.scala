@@ -67,7 +67,14 @@ case object InvalidToken extends RejectionCode
 case object Shutdown extends RejectionCode
 case object Unknown extends RejectionCode
 
-case class Rejection(code: RejectionCode, id: Int)
+/**
+ * Holds a rejected notification and all subsequent notifications that were sent.
+ * 
+ * Depending on the client's buffer size, it's possible that the failed notification is no longer available.
+ * 
+ * Note that when APNS rejects a notification, all subsequent notifications sent on the same connection are considered failed.
+ */
+case class Rejection(code: RejectionCode, rejected: Option[Notification], resent: Seq[Notification])
 
 sealed trait ApnsEnvironment {
   val pushHostname: String
@@ -82,19 +89,22 @@ case object Production extends ApnsEnvironment {
 class ApnsPushClient(
   env: ApnsEnvironment,
   sslContext: SSLContext,
-  broker: Broker[Rejection],
-  val bufferSize: Int = 100) 
+  bufferSize: Int = 100,
+  broker: Broker[Rejection] = new Broker[Rejection])
   extends DefaultClient[SeqNotification, Unit](
-    name = "apnsPush", 
-    endpointer = Bridge[SeqNotification, Rejection, SeqNotification, Unit](new ApnsPushStreamTransporter(env, sslContext), new ApnsPushDispatcher(broker, _)),
+    name = "apnsPush",
+    endpointer = Bridge[SeqNotification, SeqRejection, SeqNotification, Unit](new ApnsPushStreamTransporter(env, sslContext), new ApnsPushDispatcher(broker, bufferSize, _)), 
     pool = (sr: StatsReceiver) => new ReusingPool(_, sr)
   ) {
+  
+  val rejectionOffer = broker.recv
+
   def newClient() = {
     super.newClient(env.pushHostname)
   }
 }
 
-class ApnsPushStreamTransporter(env: ApnsEnvironment, sslContext: SSLContext) extends Netty3Transporter[SeqNotification, Rejection](
+class ApnsPushStreamTransporter(env: ApnsEnvironment, sslContext: SSLContext) extends Netty3Transporter[SeqNotification, SeqRejection](
   name = "apnsPush",
   pipelineFactory = ApnsPush().client(ClientCodecConfig("apnsclient")).pipelineFactory,
   tlsConfig = Some(Netty3TransporterTLSConfig(
@@ -104,70 +114,57 @@ class ApnsPushStreamTransporter(env: ApnsEnvironment, sslContext: SSLContext) ex
   channelSnooper = Some(new SimpleChannelSnooper("apns"))
 )
 
-class ApnsPushDispatcher[Req](broker: Broker[Rejection], trans: Transport[Req, Rejection])
-  extends Service[Req, Unit] {
-  
-  trans.read
-    .flatMap { r =>
-      trans
-        .close
-        .map(_ => r)
-    }
-    .flatMap {
-      broker ! _
-    }
+class ApnsPushDispatcher(broker: Broker[Rejection], bufferSize: Int, trans: Transport[SeqNotification, SeqRejection])
+  extends Service[SeqNotification, Unit] {
 
-  def apply(req: Req): Future[Unit] = {
-    trans.write(req)
+  private[this] val notifications = new RingBuffer[SeqNotification](bufferSize)
+
+  for {
+    (rejectedId, code) <- trans.read
+    _ <- trans.close
+  } yield {
+    notifications.synchronized {
+      val rejected = notifications.find(_._1 == rejectedId).map(_._2)
+      val fails = notifications.collect { case (id, n) if (id > rejectedId) => n }
+      broker ! Rejection(code, rejected, fails)
+    }
+  }
+
+  def apply(req: SeqNotification): Future[Unit] = {
+    trans
+      .write(req)
+      .onSuccess { _ =>
+        notifications.synchronized {
+          notifications += req
+        }
+      }
   }
   
   override def isAvailable = trans.isOpen
-  override def close(deadline: Time) = trans.close()
+  override def close(deadline: Time) = trans.close(deadline)
 
 }
 
-class Client(broker: Broker[Rejection], sf: ServiceFactory[SeqNotification, Unit], bufferSize: Int = 100, stats: StatsReceiver = ClientStatsReceiver) extends Service[Notification, Unit] {
+class Client(rejectedOffer: Offer[Rejection], sf: ServiceFactory[SeqNotification, Unit], bufferSize: Int = 100, stats: StatsReceiver = ClientStatsReceiver) extends Service[Notification, Unit] {
   
-  private[this] val notifications = new RingBuffer[SeqNotification](bufferSize)
   private[this] val clientBroker = new Broker[Rejection]
   
   private[this] val rejected = stats.counter("rejected")
   private[this] val resent = stats.counter("resent")
 
-  // Handles re-sending of failed notifications
-  broker.recv.sync
-    .flatMap { r =>
+  rejectedOffer.sync
+    .flatMap { case r@Rejection(code, _, failed) =>
       rejected.incr
-      var resend: List[Notification] = Nil
-      notifications.synchronized {
-        notifications.removeWhere { case(id, n) =>
-          if(id >= r.id) {
-            if(id > r.id) resend = resend :+ n
-            true
-          } else false
-        }
-      }
-      Future.collect(resend.map(this(_)))
-        .map { _ =>
-          resent.incr(resend.size)
-          r
-        }
-    }
-    .flatMap { r =>
-      clientBroker ! r
+      resent.incr(failed.size)
+      Future.collect(failed.map(apply(_)).toList)
+        .flatMap { _ => clientBroker ! r }
     }
 
   val rejectedNotifications: Offer[Rejection] = clientBroker.recv
 
   def apply(notification: Notification) = {
     sf().flatMap { service =>
-      val id = Sequence.next
-      service.apply((id, notification))
-        .onSuccess { _ =>
-          notifications.synchronized {
-            notifications += id -> notification
-          }
-        }
+      service.apply(Sequence.next -> notification)
     }
   }
 

@@ -7,16 +7,9 @@ import java.security.KeyStore
 
 object ApnsRichClient {
 
-  def newRichClient(client: ApnsPushClient) = {
-    val broker = new Broker[Rejection]
-    val sf = client.newClient()
-    new apns.Client(broker, sf, client.bufferSize, client.statsReceiver)
-  }
-
   def newRichClient(env: ApnsEnvironment, sslContext: SSLContext): apns.Client = {
-    val broker = new Broker[Rejection]
-    val sf = new ApnsPushClient(env, sslContext, broker).newClient(env.pushHostname)
-    new apns.Client(broker, sf)
+    val apnsClient = new ApnsPushClient(env, sslContext)
+    new apns.Client(apnsClient.rejectionOffer, apnsClient.newClient(env.pushHostname))
   }
 
   def newRichClient(env: ApnsEnvironment, keyStore: KeyStore, password: Array[Char]): apns.Client = {
