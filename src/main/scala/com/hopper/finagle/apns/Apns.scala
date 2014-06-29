@@ -3,13 +3,13 @@ package apns
 
 import protocol._
 import com.twitter.util._
-import com.twitter.concurrent.{ Broker, Offer }
-import com.twitter.finagle.{ ClientCodecConfig, Service, ServiceFactory }
+import com.twitter.concurrent.{Broker, Offer}
+import com.twitter.finagle.{ClientCodecConfig, Service, ServiceFactory}
 import com.twitter.finagle.client._
-import com.twitter.finagle.netty3.{ Netty3Transporter, Netty3TransporterTLSConfig, SimpleChannelSnooper }
+import com.twitter.finagle.netty3.{Netty3Transporter, Netty3TransporterTLSConfig, SimpleChannelSnooper}
 import com.twitter.finagle.pool.ReusingPool
 import com.twitter.finagle.ssl.JSSE
-import com.twitter.finagle.stats.{ DefaultStatsReceiver, StatsReceiver }
+import com.twitter.finagle.stats.{ClientStatsReceiver, StatsReceiver}
 import com.twitter.finagle.transport.Transport
 import java.security.KeyStore
 import javax.net.ssl.{SSLContext, TrustManagerFactory, KeyManagerFactory}
@@ -33,6 +33,7 @@ case class RichAlert(
     """{%s}""" format alert
   }
 }
+
 case class SimpleAlert(alert: String) extends Alert {
   override def toString = {
     """"%s"""" format alert
@@ -50,9 +51,7 @@ case class Payload(alert: Option[Alert] = None, badge: Option[Int] = None, sound
   }
 }
 
-case class Notification(token: Array[Byte], payload: Payload) {
-  val id = Sequence.next
-}
+case class Notification(token: Array[Byte], payload: Payload)
 
 sealed trait RejectionCode
 
@@ -85,9 +84,9 @@ class ApnsPushClient(
   sslContext: SSLContext,
   broker: Broker[Rejection],
   val bufferSize: Int = 100) 
-  extends DefaultClient[Notification, Unit](
+  extends DefaultClient[SeqNotification, Unit](
     name = "apnsPush", 
-    endpointer = Bridge[Notification, Rejection, Notification, Unit](new ApnsPushStreamTransporter(env, sslContext), new ApnsPushDispatcher(broker, _)),
+    endpointer = Bridge[SeqNotification, Rejection, SeqNotification, Unit](new ApnsPushStreamTransporter(env, sslContext), new ApnsPushDispatcher(broker, _)),
     pool = (sr: StatsReceiver) => new ReusingPool(_, sr)
   ) {
   def newClient() = {
@@ -95,7 +94,7 @@ class ApnsPushClient(
   }
 }
 
-class ApnsPushStreamTransporter(env: ApnsEnvironment, sslContext: SSLContext) extends Netty3Transporter[Notification, Rejection](
+class ApnsPushStreamTransporter(env: ApnsEnvironment, sslContext: SSLContext) extends Netty3Transporter[SeqNotification, Rejection](
   name = "apnsPush",
   pipelineFactory = ApnsPush().client(ClientCodecConfig("apnsclient")).pipelineFactory,
   tlsConfig = Some(Netty3TransporterTLSConfig(
@@ -127,9 +126,9 @@ class ApnsPushDispatcher[Req](broker: Broker[Rejection], trans: Transport[Req, R
 
 }
 
-class Client(broker: Broker[Rejection], sf: ServiceFactory[Notification, Unit], bufferSize: Int = 100, stats: StatsReceiver = DefaultStatsReceiver) extends Service[Notification, Unit] {
+class Client(broker: Broker[Rejection], sf: ServiceFactory[SeqNotification, Unit], bufferSize: Int = 100, stats: StatsReceiver = ClientStatsReceiver) extends Service[Notification, Unit] {
   
-  private[this] val notifications = new RingBuffer[Notification](bufferSize)
+  private[this] val notifications = new RingBuffer[SeqNotification](bufferSize)
   private[this] val clientBroker = new Broker[Rejection]
   
   private[this] val rejected = stats.counter("rejected")
@@ -141,9 +140,9 @@ class Client(broker: Broker[Rejection], sf: ServiceFactory[Notification, Unit], 
       rejected.incr
       var resend: List[Notification] = Nil
       notifications.synchronized {
-        notifications.removeWhere { n =>
-          if(n.id >= r.id) {
-            if(n.id > r.id) resend = resend :+ n
+        notifications.removeWhere { case(id, n) =>
+          if(id >= r.id) {
+            if(id > r.id) resend = resend :+ n
             true
           } else false
         }
@@ -162,10 +161,11 @@ class Client(broker: Broker[Rejection], sf: ServiceFactory[Notification, Unit], 
 
   def apply(notification: Notification) = {
     sf().flatMap { service =>
-      service.apply(notification)
+      val id = Sequence.next
+      service.apply((id, notification))
         .onSuccess { _ =>
           notifications.synchronized {
-            notifications += notification
+            notifications += id -> notification
           }
         }
     }

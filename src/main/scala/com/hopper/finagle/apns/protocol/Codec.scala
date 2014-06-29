@@ -94,10 +94,10 @@ class NotificationEncoder extends OneToOneEncoder {
 
   def encode(ctx: ChannelHandlerContext, channel: Channel, msg: AnyRef) = {
     msg match {
-      case n: Notification => {
+      case (id: Int, n: Notification) => {
         val msg = DeviceToken(n.token) concat
           Payload(n.payload.toString) concat
-          NotificationId(n.id)
+          NotificationId(id)
 
         val buffer = SEND concat
           U32BE(msg.length) concat
@@ -147,12 +147,12 @@ class ApnsPushChannelHandler extends SimpleChannelHandler {
   }
 }
 
-case class ApnsPush extends CodecFactory[Notification, Rejection] {
+case class ApnsPush extends CodecFactory[SeqNotification, Rejection] {
 
   def server = Function.const { throw new UnsupportedOperationException }
 
   def client = Function.const {
-    new Codec[Notification, Rejection] {
+    new Codec[SeqNotification, Rejection] {
       def pipelineFactory = new ChannelPipelineFactory {
         def getPipeline() = {
           val pipeline = Channels.pipeline()
