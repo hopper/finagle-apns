@@ -10,8 +10,4 @@ package object apns {
   // A rejection code with the notification ID that caused it
   type SeqRejection = (Int, RejectionCode)
 
-  private[this] val seq = new AtomicInteger(0)
-  
-  private[apns] val Sequence = Iterator.continually { seq.getAndIncrement() }
-
 }

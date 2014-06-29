@@ -13,6 +13,7 @@ import com.twitter.finagle.stats.{ClientStatsReceiver, StatsReceiver}
 import com.twitter.finagle.transport.Transport
 import java.security.KeyStore
 import javax.net.ssl.{SSLContext, TrustManagerFactory, KeyManagerFactory}
+import java.util.concurrent.atomic.AtomicInteger
 
 sealed trait Alert
 case class RichAlert(
@@ -91,9 +92,9 @@ class ApnsPushClient(
   sslContext: SSLContext,
   bufferSize: Int = 100,
   broker: Broker[Rejection] = new Broker[Rejection])
-  extends DefaultClient[SeqNotification, Unit](
+  extends DefaultClient[Notification, Unit](
     name = "apnsPush",
-    endpointer = Bridge[SeqNotification, SeqRejection, SeqNotification, Unit](new ApnsPushStreamTransporter(env, sslContext), new ApnsPushDispatcher(broker, bufferSize, _)), 
+    endpointer = Bridge[SeqNotification, SeqRejection, Notification, Unit](new ApnsPushStreamTransporter(env, sslContext), new ApnsPushDispatcher(broker, bufferSize, _)), 
     pool = (sr: StatsReceiver) => new ReusingPool(_, sr)
   ) {
   
@@ -115,8 +116,9 @@ class ApnsPushStreamTransporter(env: ApnsEnvironment, sslContext: SSLContext) ex
 )
 
 class ApnsPushDispatcher(broker: Broker[Rejection], bufferSize: Int, trans: Transport[SeqNotification, SeqRejection])
-  extends Service[SeqNotification, Unit] {
+  extends Service[Notification, Unit] {
 
+  private[this] val seq = new AtomicInteger(0)
   private[this] val notifications = new RingBuffer[SeqNotification](bufferSize)
 
   for {
@@ -130,12 +132,13 @@ class ApnsPushDispatcher(broker: Broker[Rejection], bufferSize: Int, trans: Tran
     }
   }
 
-  def apply(req: SeqNotification): Future[Unit] = {
+  def apply(req: Notification): Future[Unit] = {
+    val seqNotification = seq.incrementAndGet -> req
     trans
-      .write(req)
+      .write(seqNotification)
       .onSuccess { _ =>
         notifications.synchronized {
-          notifications += req
+          notifications += seqNotification
         }
       }
   }
@@ -145,7 +148,7 @@ class ApnsPushDispatcher(broker: Broker[Rejection], bufferSize: Int, trans: Tran
 
 }
 
-class Client(rejectedOffer: Offer[Rejection], sf: ServiceFactory[SeqNotification, Unit], bufferSize: Int = 100, stats: StatsReceiver = ClientStatsReceiver) extends Service[Notification, Unit] {
+class Client(rejectedOffer: Offer[Rejection], sf: ServiceFactory[Notification, Unit], bufferSize: Int = 100, stats: StatsReceiver = ClientStatsReceiver) extends Service[Notification, Unit] {
   
   private[this] val clientBroker = new Broker[Rejection]
   
@@ -164,7 +167,7 @@ class Client(rejectedOffer: Offer[Rejection], sf: ServiceFactory[SeqNotification
 
   def apply(notification: Notification) = {
     sf().flatMap { service =>
-      service.apply(Sequence.next -> notification)
+      service.apply(notification)
     }
   }
 
