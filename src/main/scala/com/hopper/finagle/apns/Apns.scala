@@ -91,13 +91,13 @@ class ApnsPushClient(
   env: ApnsEnvironment,
   sslContext: SSLContext,
   bufferSize: Int = 100,
-  broker: Broker[Rejection] = new Broker[Rejection])
+  private val broker: Broker[Rejection] = new Broker[Rejection])
   extends DefaultClient[Notification, Unit](
     name = "apnsPush",
     endpointer = Bridge[SeqNotification, SeqRejection, Notification, Unit](new ApnsPushStreamTransporter(env, sslContext), new ApnsPushDispatcher(broker, bufferSize, _)), 
     pool = (sr: StatsReceiver) => new ReusingPool(_, sr)
   ) {
-  
+
   val rejectionOffer = broker.recv
 
   def newClient() = {
@@ -152,12 +152,12 @@ class Client(rejectedOffer: Offer[Rejection], sf: ServiceFactory[Notification, U
   
   private[this] val clientBroker = new Broker[Rejection]
   
-  private[this] val rejected = stats.counter("rejected")
+  private[this] val rejected = stats.scope("rejected")
   private[this] val resent = stats.counter("resent")
 
   rejectedOffer.sync
     .flatMap { case r@Rejection(code, _, failed) =>
-      rejected.incr
+      rejected.counter(code.toString).incr
       resent.incr(failed.size)
       Future.collect(failed.map(apply(_)).toList)
         .flatMap { _ => clientBroker ! r }

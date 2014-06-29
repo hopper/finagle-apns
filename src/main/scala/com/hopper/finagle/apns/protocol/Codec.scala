@@ -11,7 +11,7 @@ import org.jboss.netty.channel.{Channel, Channels, ChannelHandlerContext, Channe
 import org.jboss.netty.handler.codec.oneone.OneToOneEncoder
 import org.jboss.netty.handler.codec.frame.FrameDecoder
 
-object Bufs {
+private[protocol] object Bufs {
   import Buf._
 
   object FramedByteArray {
@@ -33,7 +33,7 @@ object Bufs {
   }
 }
 
-class NotificationEncoder extends OneToOneEncoder {
+private[protocol] class NotificationEncoder extends OneToOneEncoder {
   
   import Bufs._
   import Buf._
@@ -110,7 +110,7 @@ class NotificationEncoder extends OneToOneEncoder {
   }
 }
 
-class RejectionDecoder extends FrameDecoder {
+private[protocol] class RejectionDecoder extends FrameDecoder {
 
   val COMMAND = 0x08.toByte
   
@@ -135,15 +135,6 @@ class RejectionDecoder extends FrameDecoder {
       msg.resetReaderIndex
       null
     }
-  }
-}
-
-class ApnsPushChannelHandler extends SimpleChannelHandler {
-  override def messageReceived(ctx: ChannelHandlerContext, e: MessageEvent) = {
-    e.getMessage match {
-      case r: Rejection =>
-        
-    } 
   }
 }
 
