@@ -2,6 +2,8 @@ package com.hopper.finagle.apns
 package protocol
 
 import com.twitter.finagle.{Codec, CodecFactory}
+import com.twitter.finagle.netty3.BufChannelBuffer
+import com.twitter.io.{Buf, Charsets}
 import com.twitter.util.Future
 import com.twitter.concurrent.Offer
 import org.jboss.netty.buffer.{ChannelBuffer, ChannelBuffers}
@@ -9,68 +11,99 @@ import org.jboss.netty.channel.{Channel, Channels, ChannelHandlerContext, Channe
 import org.jboss.netty.handler.codec.oneone.OneToOneEncoder
 import org.jboss.netty.handler.codec.frame.FrameDecoder
 
-class NotificationEncoder extends OneToOneEncoder {
-  
-  val SEND = 0x02.toByte
-  
-  sealed trait Item {
-    val size: Int
-    def write(buffer: ChannelBuffer)
+object Bufs {
+  import Buf._
+
+  object FramedByteArray {
+    def apply(bytes: Array[Byte]) = {
+      U16BE(bytes.length.toShort) concat
+      ByteArray(bytes)
+    }
   }
 
-  case class DeviceToken(token: Array[Byte]) extends Item {
-    val size = 1 + 2 + token.length
-    def write(buffer: ChannelBuffer) = {
-      buffer.writeByte(0x01)
-      buffer.writeShort(token.length)
-      buffer.writeBytes(token)
+  object U16BE {
+    def apply(s: Short) = {
+      ByteArray(
+        Array(
+          ((s >> 8) & 0xff).toByte,
+          (s & 0xff).toByte
+        )
+      )
     }
   }
-  case class Payload(payload: String) extends Item {
-    val size = 1 + 2 + payload.getBytes.length
-    def write(buffer: ChannelBuffer) = {
-      buffer.writeByte(0x02)
-      buffer.writeShort(payload.getBytes.length)
-      buffer.writeBytes(payload.getBytes)
+}
+
+class NotificationEncoder extends OneToOneEncoder {
+  
+  import Bufs._
+  import Buf._
+  
+  sealed trait Item[T] {
+    def apply(t: T): Buf
+  }
+  
+  case object DeviceToken extends Item[Array[Byte]] {
+    
+    val ItemId = Buf.ByteArray(0x01.toByte)
+
+    def apply(token: Array[Byte]) = {
+      ItemId concat
+      FramedByteArray(token)
     }
   }
-  case class NotificationId(id: Int) extends Item {
-    val size = 1 + 2 + 4
-    def write(buffer: ChannelBuffer) = {
-      buffer.writeByte(0x03)
-      buffer.writeShort(4)
-      buffer.writeInt(id)
+
+  case object Payload extends Item[String] {
+
+    val ItemId = Buf.ByteArray(0x02.toByte)
+
+    def apply(payload: String) = {
+      ItemId concat
+      FramedByteArray(payload.getBytes(Charsets.Utf8))
     }
   }
-  case class Expiration(date: Int) extends Item {
-    val size = 1 + 2 + 4
-    def write(buffer: ChannelBuffer) = {
-      buffer.writeByte(0x04)
-      buffer.writeShort(4)
-      buffer.writeInt(date)
+  
+  trait IntItem extends Item[Int] {
+
+    val ItemId: Buf
+    
+    def apply(i: Int) = {
+      ItemId concat
+      U16BE(0x04.toShort) concat
+      U32BE(i)
     }
   }
-  case class Priority(priority: Byte) extends Item {
-    val size = 1 + 2 + 1
-    def write(buffer: ChannelBuffer) = {
-      buffer.writeByte(0x05)
-      buffer.writeShort(1)
-      buffer.writeByte(priority)
+
+  case object NotificationId extends IntItem {
+    val ItemId = Buf.ByteArray(0x03.toByte)
+  }
+
+  case object Expiration extends IntItem {
+    val ItemId = Buf.ByteArray(0x04.toByte)
+  }
+
+  case object Priority extends Item[Byte] {
+    val ItemId = Buf.ByteArray(0x05.toByte)
+    def apply(b: Byte) = {
+      ItemId concat
+      U16BE(1)
+      ByteArray(b)
     }
   }
+
+  val SEND = ByteArray(0x02.toByte)
 
   def encode(ctx: ChannelHandlerContext, channel: Channel, msg: AnyRef) = {
     msg match {
       case n: Notification => {
-        val values = Seq(DeviceToken(n.token), Payload(n.payload.toString), NotificationId(n.id))
-        val frameLength = values.map(_.size).sum
-        val buffer = ChannelBuffers.dynamicBuffer(1 + 4 + frameLength)
-        buffer.writeByte(SEND)
-        buffer.writeInt(frameLength)
-        values.foreach { item =>
-          item.write(buffer)
-        }
-        buffer
+        val msg = DeviceToken(n.token) concat
+          Payload(n.payload.toString) concat
+          NotificationId(n.id)
+
+        val buffer = SEND concat
+          U32BE(msg.length) concat
+          msg
+
+        BufChannelBuffer(buffer)
       }
       case _ => throw new IllegalArgumentException("unknown msg: " + msg)
     }
