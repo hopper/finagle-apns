@@ -77,24 +77,66 @@ case object Unknown extends RejectionCode
  */
 case class Rejection(code: RejectionCode, rejected: Option[Notification], resent: Seq[Notification])
 
-sealed trait ApnsEnvironment {
+trait ApnsEnvironment {
   val pushHostname: String
+  
+  def sslContext(): Option[SSLContext]
+  
+  def tlsConfig() = {
+    sslContext.map { ssl =>
+      Netty3TransporterTLSConfig(
+        newEngine = () => JSSE.client(ssl),
+        verifyHost = Some(pushHostname.split(":").head))
+    }
+  }
 }
-case object Sandbox extends ApnsEnvironment {
-  val pushHostname = "gateway.sandbox.push.apple.com:2195"
-}
-case object Production extends ApnsEnvironment {
-  val pushHostname = "gateway.push.apple.com:2195"
+
+object ApnsEnvironment {
+
+  def apply(hostname: String, ctx: Option[SSLContext]): ApnsEnvironment = {
+    new ApnsEnvironment {
+      val pushHostname = hostname
+      def sslContext = ctx
+    }
+  }
+
+  def apply(hostname: String, keystore: KeyStore, password: Array[Char]): ApnsEnvironment = {
+    apply(hostname, Some(sslContext(keystore, password)))
+  }
+
+  def sslContext(keystore: KeyStore, password: Array[Char]) = {
+    val keyManagerFactory = KeyManagerFactory.getInstance("SunX509")
+    keyManagerFactory.init(keystore, password)
+    val sslContext = SSLContext.getInstance("TLS")
+    sslContext.init(keyManagerFactory.getKeyManagers(), null, null)
+    sslContext
+  }
+
+  def Production(keystore: KeyStore, password: Array[Char]): ApnsEnvironment = {
+    Production(sslContext(keystore, password))
+  }
+
+  def Production(ctx: SSLContext) = {
+    apply("gateway.push.apple.com:2195", Some(ctx))
+  }
+
+  def Sandbox(keystore: KeyStore, password: Array[Char]): ApnsEnvironment = {
+    Sandbox(sslContext(keystore, password))
+  }
+
+  def Sandbox(ctx: SSLContext) = {
+    apply("gateway.sandbox.push.apple.com:2195", Some(ctx))
+  }
+
 }
 
 class ApnsPushClient(
   env: ApnsEnvironment,
-  sslContext: SSLContext,
   bufferSize: Int = 100,
   private val broker: Broker[Rejection] = new Broker[Rejection])
   extends DefaultClient[Notification, Unit](
     name = "apnsPush",
-    endpointer = Bridge[SeqNotification, SeqRejection, Notification, Unit](new ApnsPushStreamTransporter(env, sslContext), new ApnsPushDispatcher(broker, bufferSize, _)), 
+    endpointer = Bridge[SeqNotification, SeqRejection, Notification, Unit](new ApnsPushStreamTransporter(env), new ApnsPushDispatcher(broker, bufferSize, _)), 
     pool = (sr: StatsReceiver) => new ReusingPool(_, sr)
   ) {
 
@@ -105,14 +147,10 @@ class ApnsPushClient(
   }
 }
 
-class ApnsPushStreamTransporter(env: ApnsEnvironment, sslContext: SSLContext) extends Netty3Transporter[SeqNotification, SeqRejection](
+class ApnsPushStreamTransporter(env: ApnsEnvironment) extends Netty3Transporter[SeqNotification, SeqRejection](
   name = "apnsPush",
   pipelineFactory = ApnsPush().client(ClientCodecConfig("apnsclient")).pipelineFactory,
-  tlsConfig = Some(Netty3TransporterTLSConfig(
-    newEngine = () => JSSE.client(sslContext),
-    verifyHost = Some(env.pushHostname.split(":").head))
-  ),
-  channelSnooper = Some(new SimpleChannelSnooper("apns"))
+  tlsConfig = env.tlsConfig
 )
 
 class ApnsPushDispatcher(broker: Broker[Rejection], bufferSize: Int, trans: Transport[SeqNotification, SeqRejection])
