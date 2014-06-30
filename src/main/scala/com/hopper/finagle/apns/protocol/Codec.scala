@@ -19,15 +19,17 @@ private[protocol] object Bufs {
       U16BE(bytes.length.toShort) concat
       ByteArray(bytes)
     }
+    def apply(buf: Buf) = {
+      U16BE(buf.length.toShort) concat
+      buf
+    }
   }
 
   object U16BE {
     def apply(s: Short) = {
       ByteArray(
-        Array(
-          ((s >> 8) & 0xff).toByte,
-          (s & 0xff).toByte
-        )
+        ((s >> 8) & 0xff).toByte,
+        (s & 0xff).toByte
       )
     }
   }
@@ -58,7 +60,7 @@ private[protocol] class NotificationEncoder extends OneToOneEncoder {
 
     def apply(payload: String) = {
       ItemId concat
-      FramedByteArray(payload.getBytes(Charsets.Utf8))
+      FramedByteArray(Utf8(payload))
     }
   }
   
@@ -85,7 +87,7 @@ private[protocol] class NotificationEncoder extends OneToOneEncoder {
     val ItemId = Buf.ByteArray(0x05.toByte)
     def apply(b: Byte) = {
       ItemId concat
-      U16BE(1)
+      U16BE(1) concat
       ByteArray(b)
     }
   }
