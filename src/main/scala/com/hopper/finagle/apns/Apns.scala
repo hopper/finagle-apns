@@ -197,6 +197,8 @@ class Client(rejectedOffer: Offer[Rejection], sf: ServiceFactory[Notification, U
     .flatMap { case r@Rejection(code, _, failed) =>
       rejected.counter(code.toString).incr
       resent.incr(failed.size)
+      // TODO: any of these may fail, clients have no way of seeing these failures right now.
+      // Reconsider resending automatically, or return a Seq[Future[Unit]]
       Future.collect(failed.map(apply(_)).toList)
         .flatMap { _ => clientBroker ! r }
     }
