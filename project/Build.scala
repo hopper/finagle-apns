@@ -1,5 +1,6 @@
 import sbt._
 import Keys._
+import sbtrelease.ReleasePlugin._
 
 object FinagleApns extends Build {
 
@@ -13,16 +14,18 @@ object FinagleApns extends Build {
       "com.google.guava" % "guava" % "15.0",
       "com.google.code.findbugs" % "jsr305" % "1.3.9",
       "org.scalatest" %% "scalatest" % "1.9.2" % "test"
-    ))
+    )
+  )
 
   lazy val buildSettings = Seq(
     organization := "com.hopper",
-    version := V.finagle,
-    crossScalaVersions := Seq("2.9.2", "2.10.3")
+    crossScalaVersions := Seq("2.9.2", "2.10.4"),
+    publishTo := Some(Resolver.file("maven-local", file(Path.userHome + "/.m2/repository")))
   )
 
   lazy val root = Project(id = "finagle-apns",
     base = file("."),
-    settings = baseSettings ++ buildSettings)
+    settings = baseSettings ++ buildSettings ++ releaseSettings
+  )
 
 }
