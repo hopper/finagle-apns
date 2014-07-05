@@ -4,7 +4,7 @@ package apns
 import protocol._
 import com.twitter.util._
 import com.twitter.concurrent.{Broker, Offer}
-import com.twitter.finagle.{ClientCodecConfig, Service, ServiceFactory}
+import com.twitter.finagle.{Service, ServiceFactory}
 import com.twitter.finagle.client._
 import com.twitter.finagle.netty3.{Netty3Transporter, Netty3TransporterTLSConfig, SimpleChannelSnooper}
 import com.twitter.finagle.pool.ReusingPool
@@ -14,6 +14,8 @@ import com.twitter.finagle.transport.Transport
 import java.security.KeyStore
 import javax.net.ssl.{SSLContext, TrustManagerFactory, KeyManagerFactory}
 import java.util.concurrent.atomic.AtomicInteger
+import org.jboss.netty.channel.{Channels, ChannelPipelineFactory}
+import org.jboss.netty.buffer.ChannelBuffer
 
 sealed trait Alert
 case class RichAlert(
@@ -55,6 +57,25 @@ case class Payload(alert: Option[Alert] = None, badge: Option[Int] = None, sound
 case class Notification(token: Array[Byte], payload: Payload)
 
 sealed trait RejectionCode
+
+object RejectionCode {
+  def unapply(byte: Byte): Option[RejectionCode] = {
+    byte match {
+      case 0x00 => Some(NoErrorsEncountered)
+      case 0x01 => Some(ProcessingError)
+      case 0x02 => Some(MissingDeviceToken)
+      case 0x03 => Some(MissingTopic)
+      case 0x04 => Some(MissingPayload)
+      case 0x05 => Some(InvalidTokenSize)
+      case 0x06 => Some(InvalidTopicSize)
+      case 0x07 => Some(InvalidPayloadSize)
+      case 0x08 => Some(InvalidToken)
+      case 0x0A => Some(Shutdown)
+      case 0xFF => Some(Unknown)
+      case _ => None
+    }
+  }
+}
 
 case object NoErrorsEncountered extends RejectionCode
 case object ProcessingError extends RejectionCode
@@ -130,15 +151,26 @@ object ApnsEnvironment {
 
 }
 
+private[apns] object PipelineFactory extends ChannelPipelineFactory {
+  def getPipeline = Channels.pipeline()
+}
+
+private[apns] class NettyTransport(env: ApnsEnvironment) extends Netty3Transporter[ChannelBuffer, ChannelBuffer](
+  name = "apns",
+  pipelineFactory = PipelineFactory,
+  tlsConfig = env.tlsConfig)
+
 class ApnsPushClient(
   env: ApnsEnvironment,
   bufferSize: Int = 100,
-  private val broker: Broker[Rejection] = new Broker[Rejection])
-  extends DefaultClient[Notification, Unit](
-    name = "apnsPush",
-    endpointer = Bridge[SeqNotification, SeqRejection, Notification, Unit](new ApnsPushStreamTransporter(env), new ApnsPushDispatcher(broker, bufferSize, _)), 
-    pool = (sr: StatsReceiver) => new ReusingPool(_, sr)
-  ) {
+  private val broker: Broker[Rejection] = new Broker[Rejection]
+) extends DefaultClient[Notification, Unit](
+  name = "apns",
+  endpointer = Bridge[SeqNotification, SeqRejection, Notification, Unit](
+    new NettyTransport(env)(_, _) map { ApnsTransport(_) }, new ApnsPushDispatcher(broker, bufferSize, _)     
+  ),
+  pool = (sr: StatsReceiver) => new ReusingPool(_, sr)
+) {
 
   val rejectionOffer = broker.recv
 
@@ -146,12 +178,6 @@ class ApnsPushClient(
     super.newClient(env.pushHostname)
   }
 }
-
-class ApnsPushStreamTransporter(env: ApnsEnvironment) extends Netty3Transporter[SeqNotification, SeqRejection](
-  name = "apnsPush",
-  pipelineFactory = ApnsPush().client(ClientCodecConfig("apnsclient")).pipelineFactory,
-  tlsConfig = env.tlsConfig
-)
 
 class ApnsPushDispatcher(broker: Broker[Rejection], bufferSize: Int, trans: Transport[SeqNotification, SeqRejection])
   extends Service[Notification, Unit] {

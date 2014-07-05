@@ -1,15 +1,11 @@
 package com.hopper.finagle.apns
 package protocol
 
-import com.twitter.finagle.{Codec, CodecFactory}
-import com.twitter.finagle.netty3.BufChannelBuffer
-import com.twitter.io.{Buf, Charsets}
-import com.twitter.util.Future
-import com.twitter.concurrent.Offer
+import com.twitter.finagle.netty3.{BufChannelBuffer, ChannelBufferBuf}
+import com.twitter.finagle.transport.Transport
+import com.twitter.io.Buf
+import com.twitter.util.{Future, Time}
 import org.jboss.netty.buffer.{ChannelBuffer, ChannelBuffers}
-import org.jboss.netty.channel.{Channel, Channels, ChannelHandlerContext, ChannelPipelineFactory, MessageEvent, SimpleChannelHandler}
-import org.jboss.netty.handler.codec.oneone.OneToOneEncoder
-import org.jboss.netty.handler.codec.frame.FrameDecoder
 
 private[protocol] object Bufs {
   import Buf._
@@ -35,7 +31,7 @@ private[protocol] object Bufs {
   }
 }
 
-private[protocol] class NotificationEncoder extends OneToOneEncoder {
+private[protocol] object Codec {
   
   import Bufs._
   import Buf._
@@ -92,69 +88,69 @@ private[protocol] class NotificationEncoder extends OneToOneEncoder {
     }
   }
 
-  val SEND = ByteArray(0x02.toByte)
+  object NotificationBuf {
+    val SEND = ByteArray(0x02.toByte)
+    def apply(req: SeqNotification): Buf = {
+      val (id, n) = req
 
-  def encode(ctx: ChannelHandlerContext, channel: Channel, msg: AnyRef) = {
-    msg match {
-      case (id: Int, n: Notification) => {
-        val msg = DeviceToken(n.token) concat
-          Payload(n.payload.toString) concat
-          NotificationId(id)
+      val msg = DeviceToken(n.token) concat
+      Payload(n.payload.toString) concat
+      NotificationId(id)
 
-        val buffer = SEND concat
-          U32BE(msg.length) concat
-          msg
-
-        BufChannelBuffer(buffer)
-      }
-      case _ => throw new IllegalArgumentException("unknown msg: " + msg)
+      SEND concat
+      Buf.U32BE(msg.length) concat
+      msg
     }
   }
-}
-
-private[protocol] class RejectionDecoder extends FrameDecoder {
-
-  val COMMAND = 0x08.toByte
   
-  def decode(ctx: ChannelHandlerContext, channel: Channel, msg: ChannelBuffer) = {
-    msg.markReaderIndex()
-    if(msg.readableBytes() >= 6 && msg.readByte == COMMAND) {
-      val code = msg.readByte() match {
-        case 0x00 => NoErrorsEncountered
-        case 0x01 => ProcessingError
-        case 0x02 => MissingDeviceToken
-        case 0x03 => MissingTopic
-        case 0x04 => MissingPayload
-        case 0x05 => InvalidTokenSize
-        case 0x06 => InvalidTopicSize
-        case 0x07 => InvalidPayloadSize
-        case 0x08 => InvalidToken
-        case 0x0A => Shutdown
-        case 0xFF => Unknown
-      }
-      msg.readInt -> code
-    } else {
-      msg.resetReaderIndex
-      null
-    }
-  }
-}
-
-case class ApnsPush extends CodecFactory[SeqNotification, SeqRejection] {
-
-  def server = Function.const { throw new UnsupportedOperationException }
-
-  def client = Function.const {
-    new Codec[SeqNotification, SeqRejection] {
-      def pipelineFactory = new ChannelPipelineFactory {
-        def getPipeline() = {
-          val pipeline = Channels.pipeline()
-          pipeline.addLast("encoder", new NotificationEncoder)
-          pipeline.addLast("decoder", new RejectionDecoder)
-          pipeline
+  object RejectionBuf {
+    val COMMAND = 0x08.toByte
+    def unapply(buf: Buf): Option[RejectionCode] = {
+      if (buf.length < 2) None else {
+        val bytes = new Array[Byte](2)
+        buf.slice(0, 2).write(bytes, 0)
+        bytes match {
+          case Array(COMMAND, RejectionCode(code)) => Some(code)
+          case _ => None
         }
       }
     }
   }
+}
 
+case class ApnsTransport(
+  trans: Transport[ChannelBuffer, ChannelBuffer]
+) extends Transport[SeqNotification, SeqRejection] {
+
+  import Codec._
+
+  def isOpen = trans.isOpen
+  val onClose = trans.onClose
+  def localAddress = trans.localAddress
+  def remoteAddress = trans.remoteAddress
+  def close(deadline: Time) = trans.close(deadline)
+
+  def write(req: SeqNotification): Future[Unit] = {
+    trans.write(BufChannelBuffer(NotificationBuf(req)))
+  }
+
+  def read(): Future[SeqRejection] =
+    read(2) flatMap { case RejectionBuf(code) => 
+      read(4) map { case Buf.U32BE(id, _) =>
+        id -> code
+      } 
+    }
+
+  @volatile private[this] var buf = Buf.Empty
+  private[this] def read(len: Int): Future[Buf] =
+    if (buf.length < len) {
+      trans.read flatMap { chanBuf =>
+        buf = buf.concat(ChannelBufferBuf(chanBuf))
+        read(len)
+      }
+    } else {
+      val out = buf.slice(0, len)
+      buf = buf.slice(len, buf.length)
+      Future.value(out)
+    }
 }
