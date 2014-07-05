@@ -50,13 +50,13 @@ private[protocol] object Codec {
     }
   }
 
-  case object Payload extends Item[String] {
+  case object PayloadItem extends Item[Payload] {
 
     val ItemId = Buf.ByteArray(0x02.toByte)
 
-    def apply(payload: String) = {
+    def apply(payload: Payload) = {
       ItemId concat
-      FramedByteArray(Utf8(payload))
+      FramedByteArray(Utf8(Json.encode(payload).getOrElse("")))
     }
   }
   
@@ -94,7 +94,7 @@ private[protocol] object Codec {
       val (id, n) = req
 
       val msg = DeviceToken(n.token) concat
-      Payload(n.payload.toString) concat
+      PayloadItem(n.payload) concat
       NotificationId(id)
 
       SEND concat
@@ -116,6 +116,45 @@ private[protocol] object Codec {
       }
     }
   }
+
+  /**
+   *  poor-man's JSON encoding. Supports the following types as values:
+   *  String, Boolean, Number, Map[String, T], Traversable[T] and Option[T] where T is one of those types.
+   *
+   *  None values are omitted from the encoded JSON objects and arrays. Empty objects and arrays are also omitted.
+   *
+   *  Thus, encoding Map("foo" -> None, "foobar" -> Seq.empty, "bar" -> "baz") results in {"bar":"baz"}
+   */
+  object Json {
+
+    def escape(str: String) = str.replaceAllLiterally("\"", """\"""")
+
+    def encode(value: Any): Option[String] = {
+      value match {
+        case Payload(alert, badge, sound, more) => encode(Map("aps" -> Map("alert" -> alert, "badge" -> badge, "sound" -> sound)) ++ more)
+        case SimpleAlert(str) => encode(str)
+        case RichAlert(body, actionLocKey, locKey, locArgs, launchImage) => encode(Map("body" -> body, "action-loc-key" -> actionLocKey, "loc-ley" -> locKey, "loc-args" -> locArgs, "launch-image" -> launchImage))
+        case s: String => Some(""""%s"""" format escape(s))
+        case _: Boolean => Some(value.toString)
+        case _: Number => Some(value.toString)
+        case Some(v) => encode(v)
+        case None => None
+        case obj: Map[_, _] => {
+          Some(
+            obj.flatMap {
+              case (k, v) =>
+                encode(v).map { encoded =>
+                  """"%s":%s""" format (k, encoded)
+                }
+            }
+          ).filter(_.nonEmpty)
+            .map(_.mkString("{", ",", "}"))
+        }
+        case values: Traversable[_] => Some(values.flatMap(encode _)).filter(_.nonEmpty).map(_.mkString("[", ",", "]"))
+      }
+    }
+  }
+
 }
 
 case class ApnsTransport(
