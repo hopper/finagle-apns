@@ -3,7 +3,7 @@ package apns
 
 import protocol._
 import com.twitter.util._
-import com.twitter.concurrent.{Broker, Offer}
+import com.twitter.concurrent.{Broker, Offer, Spool}
 import com.twitter.finagle.{Service, ServiceFactory}
 import com.twitter.finagle.client._
 import com.twitter.finagle.netty3.{Netty3Transporter, Netty3TransporterTLSConfig, SimpleChannelSnooper}
@@ -75,31 +75,36 @@ case object Unknown extends RejectionCode
  */
 case class Rejection(code: RejectionCode, rejected: Option[Notification], resent: Seq[Notification])
 
+case class Feedback(timestamp: Int, token: Array[Byte])
+
 trait ApnsEnvironment {
   val pushHostname: String
-  
+
+  val feedbackHostname: String
+
   def sslContext(): Option[SSLContext]
-  
-  def tlsConfig() = {
+
+  def tlsConfig(hostname: String) = {
     sslContext.map { ssl =>
       Netty3TransporterTLSConfig(
         newEngine = () => JSSE.client(ssl),
-        verifyHost = Some(pushHostname.split(":").head))
+        verifyHost = Some(hostname.split(":").head))
     }
   }
 }
 
 object ApnsEnvironment {
 
-  def apply(hostname: String, ctx: Option[SSLContext]): ApnsEnvironment = {
+  def apply(ph: String, fh: String, ctx: Option[SSLContext]): ApnsEnvironment = {
     new ApnsEnvironment {
-      val pushHostname = hostname
+      val pushHostname = ph
+      val feedbackHostname = fh
       def sslContext = ctx
     }
   }
 
-  def apply(hostname: String, keystore: KeyStore, password: Array[Char]): ApnsEnvironment = {
-    apply(hostname, Some(sslContext(keystore, password)))
+  def apply(ph: String, fh: String, keystore: KeyStore, password: Array[Char]): ApnsEnvironment = {
+    apply(ph, fh, Some(sslContext(keystore, password)))
   }
 
   def sslContext(keystore: KeyStore, password: Array[Char]) = {
@@ -115,7 +120,7 @@ object ApnsEnvironment {
   }
 
   def Production(ctx: SSLContext) = {
-    apply("gateway.push.apple.com:2195", Some(ctx))
+    apply("gateway.push.apple.com:2195", "feedback.push.apple.com:2196", Some(ctx))
   }
 
   def Sandbox(keystore: KeyStore, password: Array[Char]): ApnsEnvironment = {
@@ -123,7 +128,7 @@ object ApnsEnvironment {
   }
 
   def Sandbox(ctx: SSLContext) = {
-    apply("gateway.sandbox.push.apple.com:2195", Some(ctx))
+    apply("gateway.sandbox.push.apple.com:2195", "feedback.sandbox.push.apple.com:2196", Some(ctx))
   }
 
 }
@@ -132,10 +137,11 @@ private[apns] object PipelineFactory extends ChannelPipelineFactory {
   def getPipeline = Channels.pipeline()
 }
 
-private[apns] class NettyTransport(env: ApnsEnvironment) extends Netty3Transporter[ChannelBuffer, ChannelBuffer](
-  name = "apns",
+private[apns] class NettyTransport(name: String, tls: Option[Netty3TransporterTLSConfig]) extends Netty3Transporter[ChannelBuffer, ChannelBuffer](
+  name = name,
   pipelineFactory = PipelineFactory,
-  tlsConfig = env.tlsConfig)
+  tlsConfig = tls
+)
 
 class ApnsPushClient(
   env: ApnsEnvironment,
@@ -144,7 +150,7 @@ class ApnsPushClient(
 ) extends DefaultClient[Notification, Unit](
   name = "apns",
   endpointer = Bridge[SeqNotification, SeqRejection, Notification, Unit](
-    new NettyTransport(env)(_, _) map { ApnsTransport(_) }, new ApnsPushDispatcher(broker, bufferSize, _)     
+    new NettyTransport("apnsPush", env.tlsConfig(env.pushHostname))(_, _) map { ApnsPushTransport(_) }, new ApnsPushDispatcher(broker, bufferSize, _)     
   ),
   pool = (sr: StatsReceiver) => new ReusingPool(_, sr)
 ) {
@@ -189,7 +195,28 @@ class ApnsPushDispatcher(broker: Broker[Rejection], bufferSize: Int, trans: Tran
 
 }
 
-class Client(rejectedOffer: Offer[Rejection], sf: ServiceFactory[Notification, Unit], bufferSize: Int = 100, stats: StatsReceiver = ClientStatsReceiver) extends Service[Notification, Unit] {
+class ApnsFeedbackClient(
+  env: ApnsEnvironment
+) extends DefaultClient[Unit, Spool[Feedback]](
+  name = "apns",
+  endpointer = Bridge[Unit, Spool[Feedback], Unit, Spool[Feedback]](
+    new NettyTransport("apnsFeedback", env.tlsConfig(env.feedbackHostname))(_, _) map { ApnsFeedbackTransport(_) }, new ApnsFeedbackDispatcher(_)     
+  ),
+  pool = DefaultPool(low = 0, high = 1)
+) {
+
+  def newClient() = {
+    super.newClient(env.feedbackHostname)
+  }
+}
+
+class ApnsFeedbackDispatcher(trans: Transport[Unit, Spool[Feedback]]) extends Service[Unit, Spool[Feedback]] {
+  def apply(unit: Unit) = {
+    trans.read
+  }
+}
+
+class Client(rejectedOffer: Offer[Rejection], push: ServiceFactory[Notification, Unit], feedback: ServiceFactory[Unit, Spool[Feedback]], bufferSize: Int = 100, stats: StatsReceiver = ClientStatsReceiver) extends Service[Notification, Unit] {
   
   private[this] val clientBroker = new Broker[Rejection]
   
@@ -209,9 +236,19 @@ class Client(rejectedOffer: Offer[Rejection], sf: ServiceFactory[Notification, U
   val rejectedNotifications: Offer[Rejection] = clientBroker.recv
 
   def apply(notification: Notification) = {
-    sf().flatMap { service =>
-      service.apply(notification)
+    push() flatMap { service =>
+      service(notification)
     }
+  }
+
+  def fetchFeedback(): Future[Spool[Feedback]] = {
+    feedback() flatMap { service =>
+      service()
+    }
+  }
+
+  override def close(deadline: Time) = {
+    Closable.all(push, feedback).close(deadline)
   }
 
 }

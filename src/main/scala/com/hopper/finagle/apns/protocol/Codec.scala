@@ -5,6 +5,7 @@ import com.twitter.finagle.netty3.{BufChannelBuffer, ChannelBufferBuf}
 import com.twitter.finagle.transport.Transport
 import com.twitter.io.Buf
 import com.twitter.util.{Future, Time}
+import com.twitter.concurrent.{SpoolSource, Spool}
 import org.jboss.netty.buffer.{ChannelBuffer, ChannelBuffers}
 
 private[protocol] object Bufs {
@@ -157,9 +158,27 @@ private[protocol] object Codec {
 
 }
 
-case class ApnsTransport(
+trait ApnsTransport {
+  
+  val trans: Transport[ChannelBuffer, ChannelBuffer]
+  
+  @volatile private[this] var buf = Buf.Empty
+  protected[this] def read(len: Int): Future[Buf] =
+    if (buf.length < len) {
+      trans.read flatMap { chanBuf =>
+        buf = buf.concat(ChannelBufferBuf(chanBuf))
+        read(len)
+      }
+    } else {
+      val out = buf.slice(0, len)
+      buf = buf.slice(len, buf.length)
+      Future.value(out)
+    }
+}
+
+case class ApnsPushTransport(
   trans: Transport[ChannelBuffer, ChannelBuffer]
-) extends Transport[SeqNotification, SeqRejection] {
+) extends Transport[SeqNotification, SeqRejection] with ApnsTransport {
 
   import Codec._
 
@@ -180,16 +199,38 @@ case class ApnsTransport(
       } 
     }
 
-  @volatile private[this] var buf = Buf.Empty
-  private[this] def read(len: Int): Future[Buf] =
-    if (buf.length < len) {
-      trans.read flatMap { chanBuf =>
-        buf = buf.concat(ChannelBufferBuf(chanBuf))
-        read(len)
-      }
-    } else {
-      val out = buf.slice(0, len)
-      buf = buf.slice(len, buf.length)
-      Future.value(out)
+}
+
+case class ApnsFeedbackTransport(
+  trans: Transport[ChannelBuffer, ChannelBuffer]
+) extends Transport[Unit, Spool[Feedback]] with ApnsTransport {
+
+  import Codec._
+
+  def isOpen = trans.isOpen
+  val onClose = trans.onClose
+  def localAddress = trans.localAddress
+  def remoteAddress = trans.remoteAddress
+  def close(deadline: Time) = trans.close(deadline)
+
+  def write(req: Unit): Future[Unit] = Future.Done
+
+  def read(): Future[Spool[Feedback]] = {
+    val source = new SpoolSource[Feedback]
+    onClose ensure {
+      source.close
     }
+    def readAll() {
+      read(4) flatMap { case Buf.U32BE(ts, _) =>
+        read(34) map { buf =>
+          val token = new Array[Byte](32)
+          buf.write(token, 2)
+          source.offer(Feedback(ts, token))
+          readAll()
+        }
+      }
+    }
+    readAll
+    source()
+  }
 }

@@ -9,13 +9,13 @@ It is currently not available in Maven Central, so you'll have to compile it and
 ```
 # git clone https://github.com/Hopper/finagle-apns
 # cd finagle-apns
-# git checkout v6.18-1
+# git checkout v6.18-3
 # sbt +publish-local
 ```
 
 Then add it as a dependency to your project
 
-```libraryDependencies += "com.hopper" %% "finagle-apns" % "6.18-1"```
+```libraryDependencies += "com.hopper" %% "finagle-apns" % "6.18-3"```
 
 ## Using it
 
@@ -28,7 +28,7 @@ val keystore: java.security.KeyStore = ???
 val password: Array[Char] = ???
 
 // Create your client
-val apns = ApnsRichClient.newRichClient(ApnsEnvironment.Sandbox(keystore, password))
+val apns = Apns.newRichClient(ApnsEnvironment.Sandbox(keystore, password))
 
 // Obtain a device token to send a notification to
 val deviceToken: Array[Byte] = ???
@@ -49,9 +49,6 @@ apns(notification)
 When APNS rejects one of your notifications, it sends a message asynchronously. This is represented as an ```Offer[Rejection]```. Here's how to use it:
 
 ```scala
-[...]
-val apns = ApnsRichClient.newRichClient(ApnsEnvironment.Sandbox(keystore, password))
-
 val rejections: Offer[Rejection] = apns.rejectedNotifications
 
 rejections.foreach { case Rejection(reason, rejected, resent) =>
@@ -69,4 +66,21 @@ As few notes:
 * In order to provide the rejected notification and to be able to re-send subsequent notifications, the client needs to hold on to the last few notifications you send in memory. This buffer's size is configurable.
 * The consequence is that the client may not be able to provide you with the rejected notification and it may also not be able to resend all notifications that might be necessary. You'll need to adjust the buffer size with the rate at which you're sending notifications.
 
+### The Feedback Service
 
+APNS requires that you periodically connect to the feedback service to fetch device tokens that have unregistered from your notifications.
+
+This is exposed by the ```fetchFeedback``` function on the client:
+
+```scala
+// Some method to asynchronously unregister a token from your database
+def unregisterToken(token: Array[Byte]): Future[Unit] = ???
+
+val feedback: Future[Spool[Feedback]] = apns.fetchFeedback()
+
+feedback.flatMap { spool =>
+  spool.mapFuture { feedback =>
+    unregisterToken(feedback.token)
+  }
+}
+```
