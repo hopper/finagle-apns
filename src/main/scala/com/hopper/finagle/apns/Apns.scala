@@ -148,11 +148,11 @@ class ApnsPushClient(
   bufferSize: Int = 100,
   private val broker: Broker[Rejection] = new Broker[Rejection]
 ) extends DefaultClient[Notification, Unit](
-  name = "apns",
+  name = "apns-push",
   endpointer = Bridge[SeqNotification, SeqRejection, Notification, Unit](
-    new NettyTransport("apnsPush", env.tlsConfig(env.pushHostname))(_, _) map { ApnsPushTransport(_) }, new ApnsPushDispatcher(broker, bufferSize, _)     
+    new NettyTransport("apns-push", env.tlsConfig(env.pushHostname))(_, _) map { ApnsPushTransport(_) }, new ApnsPushDispatcher(broker, bufferSize, _)
   ),
-  pool = (sr: StatsReceiver) => new ReusingPool(_, sr)
+  pool = DefaultPool(low = 1)
 ) {
 
   val rejectionOffer = broker.recv
@@ -198,9 +198,9 @@ class ApnsPushDispatcher(broker: Broker[Rejection], bufferSize: Int, trans: Tran
 class ApnsFeedbackClient(
   env: ApnsEnvironment
 ) extends DefaultClient[Unit, Spool[Feedback]](
-  name = "apns",
+  name = "apns-feedback",
   endpointer = Bridge[Unit, Spool[Feedback], Unit, Spool[Feedback]](
-    new NettyTransport("apnsFeedback", env.tlsConfig(env.feedbackHostname))(_, _) map { ApnsFeedbackTransport(_) }, new ApnsFeedbackDispatcher(_)     
+    new NettyTransport("apns-feedback", env.tlsConfig(env.feedbackHostname))(_, _) map { ApnsFeedbackTransport(_) }, new ApnsFeedbackDispatcher(_)
   ),
   pool = DefaultPool(low = 0, high = 1)
 ) {
