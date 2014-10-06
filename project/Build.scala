@@ -8,6 +8,15 @@ object FinagleApns extends Build {
     val finagle = "6.22.0"
   }
 
+  val publishToHopperNexus: Def.Initialize[Option[sbt.Resolver]] =
+    version { (v: String) =>
+      val nexus = "http://nexus.lab.mtl/nexus/"
+      if (v.trim.endsWith("SNAPSHOT"))
+        Some("snapshots" at nexus + "content/repositories/snapshots")
+      else
+        Some("releases"  at nexus + "content/repositories/releases")
+    }
+
   val baseSettings = Defaults.coreDefaultSettings ++ Seq(
     libraryDependencies ++= Seq(
       "com.twitter" %% "finagle-core" % V.finagle,
@@ -18,7 +27,7 @@ object FinagleApns extends Build {
   lazy val buildSettings = Seq(
     organization := "com.hopper",
     crossScalaVersions := Seq("2.10.5"),
-    publishTo := Some(Resolver.file("maven-local", file(Path.userHome + "/.m2/repository")))
+    publishTo <<= publishToHopperNexus
   )
 
   lazy val root = Project(id = "finagle-apns",
