@@ -221,8 +221,7 @@ class Client(rejectedOffer: Offer[Rejection], push: ServiceFactory[Notification,
   private[this] val rejected = stats.scope("rejected")
   private[this] val resent = stats.counter("resent")
 
-  rejectedOffer.sync
-    .flatMap { case r@Rejection(code, _, failed) =>
+  rejectedOffer.foreach { case r@Rejection(code, _, failed) =>
       rejected.counter(code.toString).incr
       resent.incr(failed.size)
       // TODO: any of these may fail, clients have no way of seeing these failures right now.
