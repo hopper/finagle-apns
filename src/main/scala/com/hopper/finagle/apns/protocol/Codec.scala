@@ -161,7 +161,13 @@ private[protocol] object Codec {
 trait ApnsTransport {
   
   val trans: Transport[ChannelBuffer, ChannelBuffer]
-  
+
+  def isOpen = trans.isOpen
+  val onClose = trans.onClose
+  def localAddress = trans.localAddress
+  def remoteAddress = trans.remoteAddress
+  def close(deadline: Time) = trans.close(deadline)
+
   @volatile private[this] var buf = Buf.Empty
   protected[this] def read(len: Int): Future[Buf] =
     if (buf.length < len) {
@@ -182,12 +188,6 @@ case class ApnsPushTransport(
 
   import Codec._
 
-  def isOpen = trans.isOpen
-  val onClose = trans.onClose
-  def localAddress = trans.localAddress
-  def remoteAddress = trans.remoteAddress
-  def close(deadline: Time) = trans.close(deadline)
-
   def write(req: SeqNotification): Future[Unit] = {
     trans.write(BufChannelBuffer(NotificationBuf(req)))
   }
@@ -204,14 +204,6 @@ case class ApnsPushTransport(
 case class ApnsFeedbackTransport(
   trans: Transport[ChannelBuffer, ChannelBuffer]
 ) extends Transport[Unit, Spool[Feedback]] with ApnsTransport {
-
-  import Codec._
-
-  def isOpen = trans.isOpen
-  val onClose = trans.onClose
-  def localAddress = trans.localAddress
-  def remoteAddress = trans.remoteAddress
-  def close(deadline: Time) = trans.close(deadline)
 
   def write(req: Unit): Future[Unit] = Future.Done
 
