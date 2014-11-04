@@ -6,13 +6,13 @@ import com.twitter.util._
 import com.twitter.concurrent.{Broker, Offer, Spool}
 import com.twitter.finagle.{Service, ServiceFactory}
 import com.twitter.finagle.client._
-import com.twitter.finagle.netty3.{Netty3Transporter, Netty3TransporterTLSConfig, SimpleChannelSnooper}
-import com.twitter.finagle.pool.ReusingPool
+import com.twitter.finagle.dispatch.GenSerialClientDispatcher
+import com.twitter.finagle.netty3.{Netty3Transporter, Netty3TransporterTLSConfig}
 import com.twitter.finagle.ssl.JSSE
 import com.twitter.finagle.stats.{ClientStatsReceiver, StatsReceiver}
 import com.twitter.finagle.transport.Transport
 import java.security.KeyStore
-import javax.net.ssl.{SSLContext, TrustManagerFactory, KeyManagerFactory}
+import javax.net.ssl.{SSLContext, KeyManagerFactory}
 import java.util.concurrent.atomic.AtomicInteger
 import org.jboss.netty.channel.{Channels, ChannelPipelineFactory}
 import org.jboss.netty.buffer.ChannelBuffer
@@ -140,7 +140,8 @@ private[apns] object PipelineFactory extends ChannelPipelineFactory {
 private[apns] class NettyTransport(name: String, tls: Option[Netty3TransporterTLSConfig]) extends Netty3Transporter[ChannelBuffer, ChannelBuffer](
   name = name,
   pipelineFactory = PipelineFactory,
-  tlsConfig = tls
+  tlsConfig = tls,
+  channelOptions = Netty3Transporter.defaultChannelOptions ++ Map("connectTimeoutMillis" -> (5000L: java.lang.Long)) // TODO: Use StackClient
 )
 
 class ApnsPushClient(
@@ -152,7 +153,7 @@ class ApnsPushClient(
   endpointer = Bridge[SeqNotification, SeqRejection, Notification, Unit](
     new NettyTransport("apns-push", env.tlsConfig(env.pushHostname))(_, _) map { ApnsPushTransport(_) }, new ApnsPushDispatcher(broker, bufferSize, _)
   ),
-  pool = DefaultPool(low = 1)
+  pool = DefaultPool()
 ) {
 
   val rejectionOffer = broker.recv
@@ -163,7 +164,7 @@ class ApnsPushClient(
 }
 
 class ApnsPushDispatcher(broker: Broker[Rejection], bufferSize: Int, trans: Transport[SeqNotification, SeqRejection])
-  extends Service[Notification, Unit] {
+extends GenSerialClientDispatcher[Notification, Unit, SeqNotification, SeqRejection](trans) {
 
   private[this] val seq = new AtomicInteger(0)
   private[this] val notifications = new RingBuffer[SeqNotification](bufferSize)
@@ -179,19 +180,16 @@ class ApnsPushDispatcher(broker: Broker[Rejection], bufferSize: Int, trans: Tran
     }
   }
 
-  def apply(req: Notification): Future[Unit] = {
+  import GenSerialClientDispatcher.wrapWriteException
+
+  override protected def dispatch(req: Notification, p: Promise[Unit]): Future[Unit] = {
     val seqNotification = seq.incrementAndGet -> req
-    trans
-      .write(seqNotification)
-      .onSuccess { _ =>
-        notifications.synchronized {
-          notifications += seqNotification
-        }
-      }
+    trans.write(seqNotification) rescue(
+      wrapWriteException
+    ) respond {
+      p.updateIfEmpty(_)
+    }
   }
-  
-  override def isAvailable = trans.isOpen
-  override def close(deadline: Time) = trans.close(deadline)
 
 }
 
