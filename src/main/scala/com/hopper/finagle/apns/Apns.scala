@@ -232,16 +232,15 @@ class Client(rejectedOffer: Offer[Rejection], push: ServiceFactory[Notification,
 
   val rejectedNotifications: Offer[Rejection] = clientBroker.recv
 
+  private[this] val pushService = push.toService
+  private[this] val feedbackService = feedback.toService
+
   def apply(notification: Notification) = {
-    push() flatMap { service =>
-      service(notification)
-    }
+    pushService(notification)
   }
 
   def fetchFeedback(): Future[Spool[Feedback]] = {
-    feedback() flatMap { service =>
-      service()
-    }
+    feedbackService()
   }
 
   override def close(deadline: Time) = {
