@@ -26,6 +26,12 @@ class CodecSpec extends WordSpec {
       }
     }
 
+    "has content-available" should {
+      "include content-available as an int" in {
+        assert(Json.encode(Payload(contentAvailable = true)) === Some("""{"aps":{"content-available":1}}"""))
+      }
+    }
+
     "has a rich alert" should {
       "encode all members" in {
         assert(Json.encode(

@@ -29,7 +29,7 @@ case class RichAlert(
 
 case class SimpleAlert(alert: String) extends Alert
 
-case class Payload(alert: Option[Alert] = None, badge: Option[Int] = None, sound: Option[String] = None, custom: Map[String, Any] = Map.empty)
+case class Payload(alert: Option[Alert] = None, badge: Option[Int] = None, sound: Option[String] = None, contentAvailable: Boolean = false, custom: Map[String, Any] = Map.empty)
 
 case class Notification(token: Array[Byte], payload: Payload)
 

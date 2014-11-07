@@ -132,7 +132,11 @@ private[protocol] object Codec {
 
     def encode(value: Any): Option[String] = {
       value match {
-        case Payload(alert, badge, sound, more) => encode(Map("aps" -> Map("alert" -> alert, "badge" -> badge, "sound" -> sound)) ++ more)
+        case Payload(alert, badge, sound, contentAvailable, more) => encode {
+          Map("aps" ->
+            Map("alert" -> alert, "badge" -> badge, "sound" -> sound, "content-available" -> (if(contentAvailable) Some(1) else None))
+          ) ++ more
+        }
         case SimpleAlert(str) => encode(str)
         case RichAlert(body, actionLocKey, locKey, locArgs, launchImage) => encode(Map("body" -> body, "action-loc-key" -> actionLocKey, "loc-ley" -> locKey, "loc-args" -> locArgs, "launch-image" -> launchImage))
         case s: String => Some(""""%s"""" format escape(s))
