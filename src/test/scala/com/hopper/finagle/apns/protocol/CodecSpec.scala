@@ -36,7 +36,7 @@ class CodecSpec extends WordSpec {
       "encode all members" in {
         assert(Json.encode(
           Payload(alert = Some(
-            RichAlert(body = "body", actionLocKey = Some("actionLocKey"), locKey = Some("locKey"), locArgs = Seq("a", "b"), launchImage = Some("image"))
+            RichAlert(body = Some("body"), actionLocKey = Some("actionLocKey"), locKey = Some("locKey"), locArgs = Seq("a", "b"), launchImage = Some("image"))
           ))) === Some("""{"aps":{"alert":{"body":"body","loc-args":["a","b"],"launch-image":"image","action-loc-key":"actionLocKey","loc-ley":"locKey"}}}"""))
       }
     }
