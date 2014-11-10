@@ -26,6 +26,12 @@ class CodecSpec extends WordSpec {
       }
     }
 
+    "has null" should {
+      "exclude it" in {
+        assert(Json.encode(Payload(custom = Map("thisIsNull" -> null))) === None)
+      }
+    }
+
     "has content-available" should {
       "include content-available as an int" in {
         assert(Json.encode(Payload(contentAvailable = true)) === Some("""{"aps":{"content-available":1}}"""))

@@ -122,7 +122,7 @@ private[protocol] object Codec {
    *  poor-man's JSON encoding. Supports the following types as values:
    *  String, Boolean, Number, Map[String, T], Traversable[T] and Option[T] where T is one of those types.
    *
-   *  None values are omitted from the encoded JSON objects and arrays. Empty objects and arrays are also omitted.
+   *  None and null values are omitted from the encoded JSON objects and arrays. Empty objects and arrays are also omitted.
    *
    *  Thus, encoding Map("foo" -> None, "foobar" -> Seq.empty, "bar" -> "baz") results in {"bar":"baz"}
    */
@@ -144,6 +144,7 @@ private[protocol] object Codec {
         case _: Number => Some(value.toString)
         case Some(v) => encode(v)
         case None => None
+        case null => None
         case obj: Map[_, _] => {
           Some(
             obj.flatMap {
