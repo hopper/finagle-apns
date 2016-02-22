@@ -5,21 +5,19 @@ import sbtrelease.ReleasePlugin._
 object FinagleApns extends Build {
 
   object V {
-    val finagle = "6.20.0"
+    val finagle = "6.22.0"
   }
 
-  val baseSettings = Defaults.defaultSettings ++ Seq(
+  val baseSettings = Defaults.coreDefaultSettings ++ Seq(
     libraryDependencies ++= Seq(
       "com.twitter" %% "finagle-core" % V.finagle,
-      "com.google.guava" % "guava" % "16.0.1",
-      "com.google.code.findbugs" % "jsr305" % "1.3.9",
-      "org.scalatest" %% "scalatest" % "1.9.2" % "test"
+      "org.scalatest" %% "scalatest" % "2.2.6" % "test"
     )
   )
 
   lazy val buildSettings = Seq(
     organization := "com.hopper",
-    crossScalaVersions := Seq("2.9.2", "2.10.4"),
+    crossScalaVersions := Seq("2.10.5"),
     publishTo := Some(Resolver.file("maven-local", file(Path.userHome + "/.m2/repository")))
   )
 

@@ -6,7 +6,7 @@ import com.twitter.finagle.transport.Transport
 import com.twitter.io.Buf
 import com.twitter.util.{Future, Time}
 import com.twitter.concurrent.{SpoolSource, Spool}
-import org.jboss.netty.buffer.{ChannelBuffer, ChannelBuffers}
+import org.jboss.netty.buffer.ChannelBuffer
 
 private[protocol] object Bufs {
   import Buf._
