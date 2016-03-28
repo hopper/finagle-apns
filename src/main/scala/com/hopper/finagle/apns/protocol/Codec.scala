@@ -138,7 +138,8 @@ private[protocol] object Codec {
           ) ++ more
         }
         case SimpleAlert(str) => encode(str)
-        case RichAlert(body, actionLocKey, locKey, locArgs, launchImage) => encode(Map("body" -> body, "action-loc-key" -> actionLocKey, "loc-key" -> locKey, "loc-args" -> locArgs, "launch-image" -> launchImage))
+        case RichAlert(title, body, actionLocKey, locKey, locArgs, launchImage) =>
+          encode(Map("title" -> title, "body" -> body, "action-loc-key" -> actionLocKey, "loc-key" -> locKey, "loc-args" -> locArgs, "launch-image" -> launchImage))
         case s: String => Some(""""%s"""" format escape(s))
         case _: Boolean => Some(value.toString)
         case _: Number => Some(value.toString)

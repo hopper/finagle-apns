@@ -20,6 +20,7 @@ import org.jboss.netty.buffer.ChannelBuffer
 sealed trait Alert
 
 case class RichAlert(
+  title: Option[String] = None,
   body: Option[String] = None,
   actionLocKey: Option[String] = None,
   locKey: Option[String] = None,
