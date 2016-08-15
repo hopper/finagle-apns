@@ -138,21 +138,22 @@ private[apns] object PipelineFactory extends ChannelPipelineFactory {
   def getPipeline = Channels.pipeline()
 }
 
-private[apns] class NettyTransport(name: String, tls: Option[Netty3TransporterTLSConfig]) extends Netty3Transporter[ChannelBuffer, ChannelBuffer](
+private[apns] class NettyTransport(name: String, tls: Option[Netty3TransporterTLSConfig], tcpConnectTimeout: Duration) extends Netty3Transporter[ChannelBuffer, ChannelBuffer](
   name = name,
   pipelineFactory = PipelineFactory,
   tlsConfig = tls,
-  channelOptions = Netty3Transporter.defaultChannelOptions ++ Map("connectTimeoutMillis" -> (5000L: java.lang.Long)) // TODO: Use StackClient
+  channelOptions = Netty3Transporter.defaultChannelOptions ++ Map("connectTimeoutMillis" -> (tcpConnectTimeout.inMillis: java.lang.Long)) // TODO: Use StackClient
 )
 
 class ApnsPushClient(
   env: ApnsEnvironment,
-  bufferSize: Int = 100,
+  bufferSize: Int,
+  tcpConnectTimeout: Duration,
   private val broker: Broker[Rejection] = new Broker[Rejection]
 ) extends DefaultClient[Notification, Unit](
   name = "apns-push",
   endpointer = Bridge[SeqNotification, SeqRejection, Notification, Unit](
-    new NettyTransport("apns-push", env.tlsConfig(env.pushHostname))(_, _) map { ApnsPushTransport(_) }, new ApnsPushDispatcher(broker, bufferSize, _)
+    new NettyTransport("apns-push", env.tlsConfig(env.pushHostname), tcpConnectTimeout)(_, _) map { ApnsPushTransport(_) }, new ApnsPushDispatcher(broker, bufferSize, _)
   ),
   pool = DefaultPool()
 ) {
@@ -195,11 +196,12 @@ extends GenSerialClientDispatcher[Notification, Unit, SeqNotification, SeqReject
 }
 
 class ApnsFeedbackClient(
-  env: ApnsEnvironment
+  env: ApnsEnvironment,
+  tcpConnectTimeout: Duration
 ) extends DefaultClient[Unit, Spool[Feedback]](
   name = "apns-feedback",
   endpointer = Bridge[Unit, Spool[Feedback], Unit, Spool[Feedback]](
-    new NettyTransport("apns-feedback", env.tlsConfig(env.feedbackHostname))(_, _) map { ApnsFeedbackTransport(_) }, new ApnsFeedbackDispatcher(_)
+    new NettyTransport("apns-feedback", env.tlsConfig(env.feedbackHostname), tcpConnectTimeout)(_, _) map { ApnsFeedbackTransport(_) }, new ApnsFeedbackDispatcher(_)
   ),
   pool = DefaultPool(low = 0, high = 1)
 ) {
@@ -215,7 +217,7 @@ class ApnsFeedbackDispatcher(trans: Transport[Unit, Spool[Feedback]]) extends Se
   }
 }
 
-class Client(rejectedOffer: Offer[Rejection], push: ServiceFactory[Notification, Unit], feedback: ServiceFactory[Unit, Spool[Feedback]], bufferSize: Int = 100, stats: StatsReceiver = ClientStatsReceiver) extends Service[Notification, Unit] {
+class Client(rejectedOffer: Offer[Rejection], push: ServiceFactory[Notification, Unit], feedback: ServiceFactory[Unit, Spool[Feedback]], stats: StatsReceiver = ClientStatsReceiver) extends Service[Notification, Unit] {
   
   private[this] val clientBroker = new Broker[Rejection]
   
