@@ -5,6 +5,7 @@ import protocol._
 import com.twitter.util._
 import com.twitter.concurrent.{Broker, Offer, Spool}
 import com.twitter.finagle.{Service, ServiceFactory}
+import com.twitter.finagle.service.RetryingService
 import com.twitter.finagle.client._
 import com.twitter.finagle.dispatch.GenSerialClientDispatcher
 import com.twitter.finagle.netty3.{Netty3Transporter, Netty3TransporterTLSConfig}
@@ -235,7 +236,8 @@ class Client(rejectedOffer: Offer[Rejection], push: ServiceFactory[Notification,
 
   val rejectedNotifications: Offer[Rejection] = clientBroker.recv
 
-  private[this] val pushService = push.toService
+  // Apply a RetryingService to retry WriteExceptions (mostly for connection timeouts)
+  private[this] val pushService = RetryingService.tries(5, stats) andThen push.toService
   private[this] val feedbackService = feedback.toService
 
   def apply(notification: Notification) = {
