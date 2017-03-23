@@ -1,6 +1,5 @@
 import sbt._
 import Keys._
-import sbtrelease.ReleasePlugin._
 
 object FinagleApns extends Build {
 
@@ -32,7 +31,7 @@ object FinagleApns extends Build {
 
   lazy val root = Project(id = "finagle-apns",
     base = file("."),
-    settings = baseSettings ++ buildSettings ++ releaseSettings
+    settings = baseSettings ++ buildSettings
   )
 
 }
