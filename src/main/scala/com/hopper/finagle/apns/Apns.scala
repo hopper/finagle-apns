@@ -89,7 +89,7 @@ trait ApnsEnvironment {
   def tlsConfig(hostname: String) = {
     sslContext.map { ssl =>
       Netty3TransporterTLSConfig(
-        newEngine = () => JSSE.client(ssl),
+        newEngine = _ => JSSE.client(ssl),
         verifyHost = Some(hostname.split(":").head))
     }
   }
