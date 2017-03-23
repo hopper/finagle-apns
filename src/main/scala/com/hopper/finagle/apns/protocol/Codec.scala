@@ -1,11 +1,11 @@
 package com.hopper.finagle.apns
 package protocol
 
-import com.twitter.finagle.netty3.{BufChannelBuffer, ChannelBufferBuf}
-import com.twitter.finagle.transport.Transport
+import com.twitter.finagle.netty3.BufChannelBuffer
+import com.twitter.finagle.transport.{ApnsTransport, Transport}
 import com.twitter.io.Buf
-import com.twitter.util.{Future, Time}
-import com.twitter.concurrent.{SpoolSource, Spool}
+import com.twitter.util.Future
+import com.twitter.concurrent.{Spool, SpoolSource}
 import org.jboss.netty.buffer.ChannelBuffer
 
 private[protocol] object Bufs {
@@ -162,30 +162,6 @@ private[protocol] object Codec {
     }
   }
 
-}
-
-trait ApnsTransport {
-  
-  val trans: Transport[ChannelBuffer, ChannelBuffer]
-
-  def isOpen = trans.isOpen
-  val onClose = trans.onClose
-  def localAddress = trans.localAddress
-  def remoteAddress = trans.remoteAddress
-  def close(deadline: Time) = trans.close(deadline)
-
-  @volatile private[this] var buf = Buf.Empty
-  protected[this] def read(len: Int): Future[Buf] =
-    if (buf.length < len) {
-      trans.read flatMap { chanBuf =>
-        buf = buf.concat(ChannelBufferBuf(chanBuf))
-        read(len)
-      }
-    } else {
-      val out = buf.slice(0, len)
-      buf = buf.slice(len, buf.length)
-      Future.value(out)
-    }
 }
 
 case class ApnsPushTransport(

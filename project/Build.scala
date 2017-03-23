@@ -5,7 +5,7 @@ import sbtrelease.ReleasePlugin._
 object FinagleApns extends Build {
 
   object V {
-    val finagle = "6.22.0"
+    val finagle = "6.27.0"
   }
 
   val publishToHopperNexus: Def.Initialize[Option[sbt.Resolver]] =
@@ -26,7 +26,7 @@ object FinagleApns extends Build {
 
   lazy val buildSettings = Seq(
     organization := "com.hopper",
-    crossScalaVersions := Seq("2.10.5"),
+    scalaVersion := "2.11.8",
     publishTo <<= publishToHopperNexus
   )
 
