@@ -12,6 +12,8 @@ It is currently not available in Maven Central, so you'll have to compile it and
 # git checkout v6.18-3
 # sbt +publish-local
 ```
+Or use [sbt-github-packages](https://github.com/djspiewak/sbt-github-packages) to consume the package from github-maven
+
 
 Then add it as a dependency to your project
 
