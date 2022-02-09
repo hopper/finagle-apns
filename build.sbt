@@ -61,7 +61,7 @@ lazy val root = (project in file("."))
     buildSettings,
     libraryDependencies ++= Seq(
       "com.twitter"   %% "finagle-core" % "6.27.0",
-      "org.scalatest" %% "scalatest"    % "2.2.6" % "test"
+      "org.scalatest" %% "scalatest"    % "3.2.11" % "test"
     ),
     githubOwner              := "hopper",
     githubRepository         := "finagle-apns",
