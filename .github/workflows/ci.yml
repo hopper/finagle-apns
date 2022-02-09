@@ -65,4 +65,4 @@ jobs:
         with:
           check_name: test
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          files: ./**/*Test.xml
+          files: ./**/*Spec.xml
