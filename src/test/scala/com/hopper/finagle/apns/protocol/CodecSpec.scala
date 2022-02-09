@@ -1,9 +1,9 @@
 package com.hopper.finagle.apns
 package protocol
 
-import org.scalatest.WordSpec
+import org.scalatest.wordspec.AnyWordSpec
 
-class CodecSpec extends WordSpec {
+class CodecSpec extends AnyWordSpec {
 
   import Codec._
 
