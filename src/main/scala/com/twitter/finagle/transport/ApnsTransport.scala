@@ -13,13 +13,13 @@ trait ApnsTransport {
   val trans: Transport[ChannelBuffer, ChannelBuffer]
 
   def peerCertificate: Option[Certificate] = trans.peerCertificate
-  def status = trans.status
-  val onClose = trans.onClose
-  def localAddress = trans.localAddress
-  def remoteAddress = trans.remoteAddress
-  def close(deadline: Time) = trans.close(deadline)
+  def status                               = trans.status
+  val onClose                              = trans.onClose
+  def localAddress                         = trans.localAddress
+  def remoteAddress                        = trans.remoteAddress
+  def close(deadline: Time)                = trans.close(deadline)
 
-  @volatile private[this] var buf = Buf.Empty
+  @volatile private[this] var buf                 = Buf.Empty
   protected[this] def read(len: Int): Future[Buf] =
     if (buf.length < len) {
       trans.read flatMap { chanBuf =>

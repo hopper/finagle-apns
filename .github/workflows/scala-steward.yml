@@ -1,0 +1,26 @@
+name: scala-steward
+
+on:
+  schedule:
+    - cron: "0 3 * * WED"
+  workflow_dispatch:
+
+jobs:
+  scala-steward:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GITHUB_TOKEN: ${{ secrets.PAT }}
+    steps:
+      - name: Set up JDK 8
+        uses: actions/setup-java@v2
+        with:
+          distribution: 'adopt'
+          java-version: '8'
+
+      - name: Execute Scala Steward
+        uses: scala-steward-org/scala-steward-action@v2
+        with:
+          github-token: ${{ env.GITHUB_TOKEN }}
+          author-email: scala-steward@users.noreply.github.com
+          author-name: Scala Steward

@@ -3,4 +3,8 @@ target/
 .classpath
 .idea/
 .idea_modules/
-
+.metals
+.vscode
+.idea
+.bsp
+.bloop

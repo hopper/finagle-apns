@@ -1,11 +1,11 @@
 package com.hopper.finagle.apns
 package protocol
 
+import com.twitter.concurrent.{Spool, SpoolSource}
 import com.twitter.finagle.netty3.BufChannelBuffer
 import com.twitter.finagle.transport.{ApnsTransport, Transport}
 import com.twitter.io.Buf
 import com.twitter.util.Future
-import com.twitter.concurrent.{Spool, SpoolSource}
 import org.jboss.netty.buffer.ChannelBuffer
 
 private[protocol] object Bufs {
@@ -14,11 +14,11 @@ private[protocol] object Bufs {
   object FramedByteArray {
     def apply(bytes: Array[Byte]) = {
       U16BE(bytes.length.toShort) concat
-      ByteArray(bytes)
+        ByteArray(bytes: _*)
     }
-    def apply(buf: Buf) = {
+    def apply(buf: Buf)           = {
       U16BE(buf.length.toShort) concat
-      buf
+        buf
     }
   }
 
@@ -33,21 +33,21 @@ private[protocol] object Bufs {
 }
 
 private[protocol] object Codec {
-  
-  import Bufs._
+
   import Buf._
-  
+  import Bufs._
+
   sealed trait Item[T] {
     def apply(t: T): Buf
   }
-  
+
   case object DeviceToken extends Item[Array[Byte]] {
-    
+
     val ItemId = Buf.ByteArray(0x01.toByte)
 
     def apply(token: Array[Byte]) = {
       ItemId concat
-      FramedByteArray(token)
+        FramedByteArray(token)
     }
   }
 
@@ -57,18 +57,18 @@ private[protocol] object Codec {
 
     def apply(payload: Payload) = {
       ItemId concat
-      FramedByteArray(Utf8(Json.encode(payload).getOrElse("")))
+        FramedByteArray(Utf8(Json.encode(payload).getOrElse("")))
     }
   }
-  
+
   trait IntItem extends Item[Int] {
 
     val ItemId: Buf
-    
+
     def apply(i: Int) = {
       ItemId concat
-      U16BE(0x04.toShort) concat
-      U32BE(i)
+        U16BE(0x04.toShort) concat
+        U32BE(i)
     }
   }
 
@@ -82,82 +82,101 @@ private[protocol] object Codec {
 
   case object Priority extends Item[Byte] {
     val ItemId = Buf.ByteArray(0x05.toByte)
+
     def apply(b: Byte) = {
       ItemId concat
-      U16BE(1) concat
-      ByteArray(b)
+        U16BE(1) concat
+        ByteArray(b)
     }
   }
 
   object NotificationBuf {
     val SEND = ByteArray(0x02.toByte)
+
     def apply(req: SeqNotification): Buf = {
       val (id, n) = req
 
       val msg = DeviceToken(n.token) concat
-      PayloadItem(n.payload) concat
-      NotificationId(id)
+        PayloadItem(n.payload) concat
+        NotificationId(id)
 
       SEND concat
-      Buf.U32BE(msg.length) concat
-      msg
+        Buf.U32BE(msg.length) concat
+        msg
     }
   }
-  
+
   object RejectionBuf {
     val COMMAND = 0x08.toByte
+
     def unapply(buf: Buf): Option[RejectionCode] = {
-      if (buf.length < 2) None else {
+      if (buf.length < 2) None
+      else {
         val bytes = new Array[Byte](2)
         buf.slice(0, 2).write(bytes, 0)
         bytes match {
           case Array(COMMAND, RejectionCode(code)) => Some(code)
-          case _ => None
+          case _                                   => None
         }
       }
     }
   }
 
-  /**
-   *  poor-man's JSON encoding. Supports the following types as values:
-   *  String, Boolean, Number, Map[String, T], Traversable[T] and Option[T] where T is one of those types.
-   *
-   *  None and null values are omitted from the encoded JSON objects and arrays. Empty objects and arrays are also omitted.
-   *
-   *  Thus, encoding Map("foo" -> None, "foobar" -> Seq.empty, "bar" -> "baz") results in {"bar":"baz"}
-   */
+  /** poor-man's JSON encoding. Supports the following types as values: String, Boolean, Number, Map[String, T],
+    * Traversable[T] and Option[T] where T is one of those types.
+    *
+    * None and null values are omitted from the encoded JSON objects and arrays. Empty objects and arrays are also
+    * omitted.
+    *
+    * Thus, encoding Map("foo" -> None, "foobar" -> Seq.empty, "bar" -> "baz") results in {"bar":"baz"}
+    */
   object Json {
 
     def escape(str: String) = str.replaceAllLiterally("\"", """\"""")
 
     def encode(value: Any): Option[String] = {
       value match {
-        case Payload(alert, badge, sound, contentAvailable, more) => encode {
-          Map("aps" ->
-            Map("alert" -> alert, "badge" -> badge, "sound" -> sound, "content-available" -> (if(contentAvailable) Some(1) else None))
-          ) ++ more
-        }
-        case SimpleAlert(str) => encode(str)
+        case Payload(alert, badge, sound, contentAvailable, more)               =>
+          encode {
+            Map(
+              "aps" ->
+                Map(
+                  "alert"             -> alert,
+                  "badge"             -> badge,
+                  "sound"             -> sound,
+                  "content-available" -> (if (contentAvailable) Some(1) else None)
+                )
+            ) ++ more
+          }
+        case SimpleAlert(str)                                                   => encode(str)
         case RichAlert(title, body, actionLocKey, locKey, locArgs, launchImage) =>
-          encode(Map("title" -> title, "body" -> body, "action-loc-key" -> actionLocKey, "loc-key" -> locKey, "loc-args" -> locArgs, "launch-image" -> launchImage))
-        case s: String => Some(""""%s"""" format escape(s))
-        case _: Boolean => Some(value.toString)
-        case _: Number => Some(value.toString)
-        case Some(v) => encode(v)
-        case None => None
-        case null => None
-        case obj: Map[_, _] => {
+          encode(
+            Map(
+              "title"          -> title,
+              "body"           -> body,
+              "action-loc-key" -> actionLocKey,
+              "loc-key"        -> locKey,
+              "loc-args"       -> locArgs,
+              "launch-image"   -> launchImage
+            )
+          )
+        case s: String                                                          => Some(""""%s"""" format escape(s))
+        case _: Boolean                                                         => Some(value.toString)
+        case _: Number                                                          => Some(value.toString)
+        case Some(v)                                                            => encode(v)
+        case None                                                               => None
+        case null                                                               => None
+        case obj: Map[_, _]                                                     =>
           Some(
-            obj.flatMap {
-              case (k, v) =>
-                encode(v).map { encoded =>
-                  """"%s":%s""" format (k, encoded)
-                }
+            obj.flatMap { case (k, v) =>
+              encode(v).map { encoded =>
+                """"%s":%s""" format (k, encoded)
+              }
             }
           ).filter(_.nonEmpty)
             .map(_.mkString("{", ",", "}"))
-        }
-        case values: Traversable[_] => Some(values.flatMap(encode _)).filter(_.nonEmpty).map(_.mkString("[", ",", "]"))
+        case values: Traversable[_]                                             =>
+          Some(values.flatMap(encode _)).filter(_.nonEmpty).map(_.mkString("[", ",", "]"))
       }
     }
   }
@@ -165,8 +184,9 @@ private[protocol] object Codec {
 }
 
 case class ApnsPushTransport(
-  trans: Transport[ChannelBuffer, ChannelBuffer]
-) extends Transport[SeqNotification, SeqRejection] with ApnsTransport {
+    trans: Transport[ChannelBuffer, ChannelBuffer]
+) extends Transport[SeqNotification, SeqRejection]
+    with ApnsTransport {
 
   import Codec._
 
@@ -175,26 +195,27 @@ case class ApnsPushTransport(
   }
 
   def read(): Future[SeqRejection] =
-    read(2) flatMap { case RejectionBuf(code) => 
+    read(2) flatMap { case RejectionBuf(code) =>
       read(4) map { case Buf.U32BE(id, _) =>
         id -> code
-      } 
+      }
     }
 
 }
 
 case class ApnsFeedbackTransport(
-  trans: Transport[ChannelBuffer, ChannelBuffer]
-) extends Transport[Unit, Spool[Feedback]] with ApnsTransport {
+    trans: Transport[ChannelBuffer, ChannelBuffer]
+) extends Transport[Unit, Spool[Feedback]]
+    with ApnsTransport {
 
   def write(req: Unit): Future[Unit] = Future.Done
 
   def read(): Future[Spool[Feedback]] = {
-    val source = new SpoolSource[Feedback]
+    val source          = new SpoolSource[Feedback]
     onClose ensure {
       source.close
     }
-    def readAll() {
+    def readAll(): Unit = {
       read(4) flatMap { case Buf.U32BE(ts, _) =>
         read(34) map { buf =>
           val token = new Array[Byte](32)
@@ -204,7 +225,7 @@ case class ApnsFeedbackTransport(
         }
       }
     }
-    readAll
+    readAll()
     source()
   }
 }

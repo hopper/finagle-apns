@@ -1,7 +1,7 @@
 package com.hopper.finagle
 
 package object apns {
-  
+
   // A notification with its sequential ID
   type SeqNotification = (Int, Notification)
 
